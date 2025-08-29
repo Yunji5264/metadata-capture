@@ -2,7 +2,7 @@ from general_function import *
 
 
 # --- Tunable thresholds (centralised) ---------------------------------------
-_INDICATOR_THRESHOLDS = {
+INDICATOR_THRESHOLDS = {
     # For numeric detection after coercion
     "numeric_ratio_min": 0.80,     # at least 80% of non-null values must coerce to numeric
     "nonzero_ratio_min": 0.10,     # at least 10% values non-zero to avoid all-zeros columns
@@ -18,10 +18,17 @@ _INDICATOR_THRESHOLDS = {
 _CURRENCY_RE = re.compile(r"[€$£¥]|(eur|usd|gbp|cny|rmb)", re.I)
 _THOUSANDS_SEP_RE = re.compile(r"[ \u00A0\u2009\u202F]", re.UNICODE)  # space, nbsp, thin space, narrow nbspace
 _PERCENT_RE = re.compile(r"%")
-_SIGN_RE = re.compile(r"^[\+\-]")
+_SIGN_RE = re.compile(r"^[\+]")
 _NON_NUM_KEEP_DOT_COMMA_RE = re.compile(r"[^0-9\-,\.]")
 
-def _coerce_numeric_like(s: pd.Series) -> Tuple[pd.Series, float]:
+def get_semantic_value(semantic_res: pd.DataFrame, col: str, field: str, default=None):
+    """Safely fetch a single value for a column from semantic_res[field]."""
+    if field not in semantic_res.columns:
+        return default
+    ser = semantic_res.loc[semantic_res["column_name"] == col, field]
+    return ser.iloc[0] if len(ser) > 0 else default
+
+def coerce_numeric_like(s: pd.Series) -> Tuple[pd.Series, float]:
     """
     Try to coerce a possibly string-like numeric series into float.
     Handles:
@@ -53,7 +60,7 @@ def _coerce_numeric_like(s: pd.Series) -> Tuple[pd.Series, float]:
     ratio = (numeric_ok.sum() / max(1, non_null.sum())) if non_null.any() else 0.0
     return s_num, ratio
 
-def _detect_boolean_series(s: pd.Series) -> Tuple[bool, dict]:
+def detect_boolean_series(s: pd.Series) -> Tuple[bool, dict]:
     """
     Detect boolean-like series: yes/no, true/false, 0/1, oui/non, y/n.
     Returns (is_boolean, payload)
@@ -81,7 +88,7 @@ def _detect_boolean_series(s: pd.Series) -> Tuple[bool, dict]:
             return True, {"mapping": "common_boolean_strings", "unique": len(uniq)}
     return False, {}
 
-def _detect_likert_series(s: pd.Series) -> Tuple[bool, dict]:
+def detect_likert_series(s: pd.Series) -> Tuple[bool, dict]:
     """
     Detect Likert-like ordinal categories: e.g., 'strongly agree' ... 'strongly disagree',
     or small ordinal sets like {1..5} in text or ints.
@@ -137,19 +144,19 @@ def detect_quantitative_indicator(s: pd.Series, colname: str) -> Tuple[bool, dic
     if N == 0 or non_null == 0:
         return False, {}
 
-    s_num, num_ratio = _coerce_numeric_like(s)
-    if num_ratio < _INDICATOR_THRESHOLDS["numeric_ratio_min"]:
+    s_num, num_ratio = coerce_numeric_like(s)
+    if num_ratio < INDICATOR_THRESHOLDS["numeric_ratio_min"]:
         return False, {}
 
     # Exclude ID-like: too unique or strictly integer sequential with near 1:1 uniqueness
     nunique = s_num.nunique(dropna=True)
     nunique_ratio = nunique / max(1, non_null)
-    if nunique_ratio >= _INDICATOR_THRESHOLDS["id_like_nunique_ratio_min"]:
+    if nunique_ratio >= INDICATOR_THRESHOLDS["id_like_nunique_ratio_min"]:
         return False, {}
 
     # Must not be almost constant or almost all zero
     non_zero_ratio = (s_num.fillna(0) != 0).mean()
-    if non_zero_ratio < _INDICATOR_THRESHOLDS["nonzero_ratio_min"]:
+    if non_zero_ratio < INDICATOR_THRESHOLDS["nonzero_ratio_min"]:
         return False, {}
 
     # Subtype classification
@@ -205,7 +212,7 @@ def detect_quantitative_indicator(s: pd.Series, colname: str) -> Tuple[bool, dic
     # Confidence tweaks
     if subtype in ("rate", "rate_fraction", "percentage_like", "index", "count"):
         conf = 0.93
-    return True, {"indicator_type": "quantitative", "confidence": conf, **payload}
+    return True, {"indicator_type": "Quantitative", "confidence": conf, **payload}
 
 def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
     """
@@ -219,11 +226,11 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
         return False, {}
 
     # Boolean?
-    is_bool, payload_bool = _detect_boolean_series(s)
+    is_bool, payload_bool = detect_boolean_series(s)
     if is_bool:
         cats = s.dropna().astype(str).str.strip().str.lower().unique().tolist()
         return True, {
-            "indicator_type": "qualitative",
+            "indicator_type": "Qualitative",
             "subtype": "binary",
             "confidence": 0.97,
             "categories_sample": cats[:10],
@@ -231,11 +238,11 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
         }
 
     # Likert?
-    is_likert, payload_likert = _detect_likert_series(s)
+    is_likert, payload_likert = detect_likert_series(s)
     if is_likert:
         cats = s.dropna().astype(str).str.strip().str.lower().unique().tolist()
         return True, {
-            "indicator_type": "qualitative",
+            "indicator_type": "Qualitative",
             "subtype": "ordinal_likert",
             "confidence": 0.94,
             "categories_sample": cats[:10],
@@ -249,15 +256,15 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
     nunique = s.nunique(dropna=True)
     nunique_ratio = nunique / max(1, non_null)
 
-    if (nunique_ratio <= _INDICATOR_THRESHOLDS["qual_max_nunique_ratio"]
-        and _INDICATOR_THRESHOLDS["qual_min_abs_unique"] <= nunique <= _INDICATOR_THRESHOLDS["qual_max_abs_unique"]):
+    if (nunique_ratio <= INDICATOR_THRESHOLDS["qual_max_nunique_ratio"]
+        and INDICATOR_THRESHOLDS["qual_min_abs_unique"] <= nunique <= INDICATOR_THRESHOLDS["qual_max_abs_unique"]):
         # candidate qualitative
         cats = s.dropna().astype(str).str.strip().unique().tolist()
         # lightweight text-length heuristic: avoid free-text paragraphs
         avg_len = s.dropna().astype(str).str.len().mean()
         if avg_len <= 64:  # long free text unlikely to be categorical indicator
             return True, {
-                "indicator_type": "qualitative",
+                "indicator_type": "Qualitative",
                 "subtype": "nominal",
                 "confidence": 0.9,
                 "nunique": int(nunique),
@@ -266,8 +273,237 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
                 "evidence": "limited distinct categories and short average token length",
             }
     return False, {}
+
+
+def build_quantitative_entry(
+    col: str,
+    s: pd.Series,
+    semantic_res: pd.DataFrame,
+    *,
+    semantic_default_conf: float = 0.85
+) -> Dict[str, Any]:
+    """
+    Merge quantitative detector payload with semantic result.
+    - indicator_type: follow semantic ("Quantitative")
+    - thematic_path: taken from semantic result
+    - subtype / stats / suggested_dtype: from detector
+    - confidence: combined (semantic + detector)
+    - evidence: concatenated evidence strings
+    """
+
+    # --- 1) Fetch semantic row
+    row = semantic_res.loc[semantic_res["column_name"] == col]
+    des = get_semantic_value(semantic_res, col, "meaning")
+    sem_type = get_semantic_value(semantic_res, col, "indicator_type")
+    sem_path = get_semantic_value(semantic_res, col, "thematic_path")
+
+    # Only continue if semantic result marked as Quantitative
+    is_quant_sem = str(sem_type).strip().lower() == "quantitative"
+    if not is_quant_sem:
+        return {
+            "column": col,
+            "indicator_type": "Qualitative",
+            "subtype": None,
+            "theme": sem_path,
+            "confidence": 0.7,
+            "evidence": "Semantic result marked non-Quantitative."
+        }
+
+    # --- 2) Run quantitative detector
+    is_quant_det, det_payload = detect_quantitative_indicator(s, col)
+    det_payload = det_payload or {}
+
+    # --- 3) If detector failed, fallback to weak numeric profiling
+    if not is_quant_det:
+        try:
+            sn = pd.to_numeric(s, errors="coerce")
+            finite = sn.replace([np.inf, -np.inf], np.nan).dropna()
+            if not finite.empty:
+                base_stats = {
+                    "min": float(finite.min()),
+                    "max": float(finite.max()),
+                    "mean": float(finite.mean()),
+                }
+            else:
+                base_stats = {}
+        except Exception:
+            base_stats = {}
+
+        det_payload = {
+            "description": des,
+            "indicator_type": "Quantitative",
+            "confidence": 0.0,
+            "subtype": det_payload.get("subtype", None) or "continuous",
+            "suggested_dtype": det_payload.get("suggested_dtype", "float"),
+            "evidence": det_payload.get("evidence", "semantic says quantitative; detector weak profiling"),
+            **({"value_range": (base_stats.get("min"), base_stats.get("max"))} if base_stats else {}),
+            **({"mean": base_stats.get("mean")} if "mean" in base_stats else {}),
+        }
+
+    # --- 4) Merge results
+    det_conf = float(det_payload.get("confidence", 0.0))
+    sem_conf = float(semantic_default_conf)
+    final_conf = round(max(det_conf, sem_conf), 2)
+
+    # Merge evidence
+    ev_parts = []
+    ev_sem = "Semantic result marked Quantitative."
+    ev_det = det_payload.get("evidence")
+    if ev_sem:
+        ev_parts.append(ev_sem)
+    if ev_det:
+        ev_parts.append(ev_det)
+    final_evidence = " | ".join(ev_parts)
+
+    # Build final entry
+    entry: Dict[str, Any] = {
+        "column": col,
+        "description":des,
+        "indicator_type": "Quantitative",
+        "theme": sem_path,
+        "confidence": final_conf,
+        "subtype": det_payload.get("subtype"),
+        "suggested_dtype": det_payload.get("suggested_dtype"),
+        "evidence": final_evidence,
+    }
+
+    # Add numeric stats if available
+    for k in ("non_null", "nunique", "nunique_ratio", "value_range", "mean", "min", "max"):
+        if k in det_payload and det_payload[k] is not None:
+            entry[k] = det_payload[k]
+
+    return entry
+
+def build_qualitative_entry(
+    col: str,
+    s: pd.Series,
+    semantic_res: pd.DataFrame,
+    *,
+    semantic_default_conf: float = 0.80,
+    max_category_sample: int = 20
+) -> Dict[str, Any]:
+    """
+    Merge qualitative detector payloads (boolean / likert / nominal) with semantic result.
+    - indicator_type: follow semantic ("Qualitative") when available
+    - theme: taken from semantic result
+    - subtype: decided by detectors (binary / ordinal_likert / nominal) or None
+    - confidence: combine semantic prior and detector confidence (here: max)
+    - evidence: concatenated messages from semantic + detector
+
+    Returns a dict ready to append to results["indicators"].
+    """
+
+    # --- 1) Fetch semantic row safely
+    row = semantic_res.loc[semantic_res["column_name"] == col]
+    des = get_semantic_value(semantic_res, col, "meaning")
+    sem_type = get_semantic_value(semantic_res, col, "indicator_type")
+    sem_path = get_semantic_value(semantic_res, col, "thematic_path")
+
+    # Normalize semantic type (can be None)
+    sem_type_norm = (str(sem_type).strip().lower() if sem_type is not None else None)
+    is_qual_sem = (sem_type_norm == "qualitative")
+
+    # --- 2) Try Boolean
+    is_bool, payload_bool = detect_boolean_series(s)
+    if is_bool:
+        cats = s.dropna().astype(str).str.strip().str.lower().unique().tolist()
+        det_conf = float(payload_bool.get("confidence", 0.95)) if isinstance(payload_bool, dict) else 0.95
+        final_conf = round(max(det_conf, semantic_default_conf), 2)
+        return {
+            "column": col,
+            "description": des,
+            "indicator_type": "Qualitative",             # follow semantic class
+            "subtype": "binary",
+            "theme": sem_path,
+            "confidence": final_conf,
+            "categories_sample": cats[:10],
+            "evidence": "Semantic result marked Qualitative." if is_qual_sem else "Detector marked binary.",
+        }
+
+    # --- 3) Try Likert
+    is_likert, payload_likert = detect_likert_series(s)
+    if is_likert:
+        cats = s.dropna().astype(str).str.strip().str.lower().unique().tolist()
+        # Detector may return details like scale pattern in payload
+        pattern = payload_likert.get("pattern", "") if isinstance(payload_likert, dict) else ""
+        det_conf = float(payload_likert.get("confidence", 0.92)) if isinstance(payload_likert, dict) else 0.92
+        final_conf = round(max(det_conf, semantic_default_conf), 2)
+        ev_parts = []
+        if is_qual_sem:
+            ev_parts.append("Semantic result marked Qualitative.")
+        if pattern:
+            ev_parts.append(f"Likert pattern ({pattern}).")
+        return {
+            "column": col,
+            "description": des,
+            "indicator_type": "Qualitative",
+            "subtype": "ordinal_likert",
+            "theme": sem_path,
+            "confidence": final_conf,
+            "categories_sample": cats[:10],
+            "evidence": " ".join(ev_parts) if ev_parts else "Likert-like ordinal categories."
+        }
+
+    # --- 4) Try Nominal (by cardinality / avg length)
+    non_null = int(s.notna().sum())
+    if non_null > 0:
+        nunique = int(s.nunique(dropna=True))
+        nunique_ratio = nunique / max(1, non_null)
+        cats = s.dropna().astype(str).str.strip().unique().tolist()
+        avg_len = float(s.dropna().astype(str).str.len().mean())
+
+        if (
+            nunique_ratio <= INDICATOR_THRESHOLDS["qual_max_nunique_ratio"]
+            and INDICATOR_THRESHOLDS["qual_min_abs_unique"] <= nunique <= INDICATOR_THRESHOLDS["qual_max_abs_unique"]
+            and avg_len <= 64
+        ):
+            # Treat as nominal categories
+            final_conf = round(max(0.90, semantic_default_conf), 2)
+            ev_parts = []
+            if is_qual_sem:
+                ev_parts.append("Semantic result marked Qualitative.")
+            ev_parts.append("Limited distinct categories and short average token length.")
+            return {
+                "column": col,
+                "description": des,
+                "indicator_type": "Qualitative",
+                "subtype": "nominal",
+                "theme": sem_path,
+                "confidence": final_conf,
+                "nunique": nunique,
+                "nunique_ratio": float(round(nunique_ratio, 3)),
+                "categories_sample": cats[:max_category_sample],
+                "evidence": " ".join(ev_parts),
+            }
+
+    # --- 5) Fallback: keep semantic decision even if no specific subtype detected
+    # If semantic is Qualitative: return a minimal qualitative payload
+    if is_qual_sem:
+        return {
+            "column": col,
+            "description": des,
+            "indicator_type": "Qualitative",
+            "subtype": None,
+            "theme": sem_path,
+            "confidence": round(semantic_default_conf, 2),
+            "evidence": "Semantic result marked Qualitative, no specific subtype detected."
+        }
+
+    # If semantic is not Qualitative (or absent), still produce a minimal qualitative entry
+    # so downstream code sees a consistent structure.
+    return {
+        "column": col,
+        "description": des,
+        "indicator_type": "Qualitative",
+        "subtype": None,
+        "theme": sem_path,
+        "confidence": 0.7,
+        "evidence": "Detector could not match boolean/likert/nominal; defaulted to qualitative."
+    }
+
+
 #
-# # ---- Extend your existing _INDICATOR_THRESHOLDS with guard-specific defaults (idempotent) ----
+# # ---- Extend your existing INDICATOR_THRESHOLDS with guard-specific defaults (idempotent) ----
 # # These keys are added only if not already present.
 # _GUARD_DEFAULTS = {
 #     # Quantitative guard thresholds
@@ -283,7 +519,7 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
 #     "guard_boolean_min_coverage": 0.95,     # proportion of boolean-mappable values
 # }
 # for _k, _v in _GUARD_DEFAULTS.items():
-#     _INDICATOR_THRESHOLDS.setdefault(_k, _v)
+#     INDICATOR_THRESHOLDS.setdefault(_k, _v)
 #
 # # ---- Name hint regexes (quantitative, qualitative, and spatial “do-not-guard” hints) ---------
 # _QUAN_NAME_RE = re.compile(
@@ -322,10 +558,10 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
 #
 # def _numeric_profile_for_indicator_guard(s: pd.Series) -> dict:
 #     """
-#     Profile numeric characteristics using your _coerce_numeric_like to stay consistent
+#     Profile numeric characteristics using your coerce_numeric_like to stay consistent
 #     with quantitative detection.
 #     """
-#     s_num, num_ratio = _coerce_numeric_like(s)
+#     s_num, num_ratio = coerce_numeric_like(s)
 #     N = len(s)
 #     non_null = int(s_num.notna().sum())
 #     if N == 0 or non_null == 0:
@@ -343,10 +579,10 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
 #     }
 #
 # def _boolean_coverage(series: pd.Series) -> float:
-#     """Return coverage of boolean-mappable values based on your _detect_boolean_series mapping."""
+#     """Return coverage of boolean-mappable values based on your detect_boolean_series mapping."""
 #     # Reuse your boolean detector if available
 #     try:
-#         ok, _ = _detect_boolean_series(series)
+#         ok, _ = detect_boolean_series(series)
 #         if ok:
 #             return 1.0
 #     except Exception:
@@ -368,7 +604,7 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
 # def _is_likert_like_guard(series: pd.Series) -> bool:
 #     """Use your Likert detector if present; fallback to a lean check."""
 #     try:
-#         is_likert, _ = _detect_likert_series(series)
+#         is_likert, _ = detect_likert_series(series)
 #         return bool(is_likert)
 #     except Exception:
 #         pass
@@ -387,7 +623,7 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
 #         "plutot pas d'accord", "pas du tout d'accord"
 #     ]
 #     cov = t.apply(lambda x: any(k in x for k in keys)).mean()
-#     return cov >= _INDICATOR_THRESHOLDS["guard_likert_min_coverage"]
+#     return cov >= INDICATOR_THRESHOLDS["guard_likert_min_coverage"]
 #
 # def should_skip_spatial_match_for_indicator(s: pd.Series, colname: str) -> bool:
 #     """
@@ -419,13 +655,13 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
 #     name_measure_hit = bool(_QUAN_NAME_RE.search(nname))
 #
 #     quant_guard = (
-#         (name_measure_hit and prof["num_ratio"] >= _INDICATOR_THRESHOLDS["guard_name_numeric_min_ratio"])
+#         (name_measure_hit and prof["num_ratio"] >= INDICATOR_THRESHOLDS["guard_name_numeric_min_ratio"])
 #         or (
-#             prof["num_ratio"] >= _INDICATOR_THRESHOLDS["guard_numeric_min_ratio"]
+#             prof["num_ratio"] >= INDICATOR_THRESHOLDS["guard_numeric_min_ratio"]
 #             and (
-#                 prof["decimals_ratio"] >= _INDICATOR_THRESHOLDS["guard_decimals_min_ratio"]
-#                 or prof["nunique_ratio_num"] >= _INDICATOR_THRESHOLDS["guard_nunique_numeric_min_ratio"]
-#                 or prof["value_range"] > _INDICATOR_THRESHOLDS["guard_value_range_min"]
+#                 prof["decimals_ratio"] >= INDICATOR_THRESHOLDS["guard_decimals_min_ratio"]
+#                 or prof["nunique_ratio_num"] >= INDICATOR_THRESHOLDS["guard_nunique_numeric_min_ratio"]
+#                 or prof["value_range"] > INDICATOR_THRESHOLDS["guard_value_range_min"]
 #             )
 #         )
 #     )
@@ -433,7 +669,7 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
 #         return True
 #
 #     # 2) Qualitative guard
-#     if _boolean_coverage(s) >= _INDICATOR_THRESHOLDS["guard_boolean_min_coverage"]:
+#     if _boolean_coverage(s) >= INDICATOR_THRESHOLDS["guard_boolean_min_coverage"]:
 #         return True
 #     if _is_likert_like_guard(s):
 #         return True
@@ -446,12 +682,12 @@ def detect_qualitative_indicator(s: pd.Series) -> Tuple[bool, dict]:
 #     avg_len = float(s.dropna().astype(str).str.len().mean() or 0.0)
 #
 #     small_nominal = (
-#         _INDICATOR_THRESHOLDS["qual_min_abs_unique"] <= nunique <= _INDICATOR_THRESHOLDS["qual_max_abs_unique"]
-#         and nunique_ratio <= _INDICATOR_THRESHOLDS["qual_max_nunique_ratio"]
-#         and avg_len <= _INDICATOR_THRESHOLDS["qual_max_avg_len"]
+#         INDICATOR_THRESHOLDS["qual_min_abs_unique"] <= nunique <= INDICATOR_THRESHOLDS["qual_max_abs_unique"]
+#         and nunique_ratio <= INDICATOR_THRESHOLDS["qual_max_nunique_ratio"]
+#         and avg_len <= INDICATOR_THRESHOLDS["qual_max_avg_len"]
 #     )
 #
-#     mostly_numeric = prof["num_ratio"] >= _INDICATOR_THRESHOLDS["guard_numeric_min_ratio"]
+#     mostly_numeric = prof["num_ratio"] >= INDICATOR_THRESHOLDS["guard_numeric_min_ratio"]
 #     name_qual_hint = bool(_QUAL_NAME_RE.search(nname))
 #
 #     qualitative_guard = small_nominal and (not mostly_numeric or name_qual_hint)

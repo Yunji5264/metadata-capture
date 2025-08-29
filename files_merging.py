@@ -1,6 +1,4 @@
-import os
 from general_function import *
-from typing import Dict, Any, List, Tuple, Optional
 
 def is_leaf_folder(folder):
     """Return True if the folder contains no subdirectories."""
