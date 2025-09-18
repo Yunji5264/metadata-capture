@@ -1,3 +1,5 @@
+import pandas as pd
+
 from attribute_classifier import *
 from general_function import *
 from reference import *
@@ -7,12 +9,39 @@ from scope_detector import *
 from granularity_detector import *
 from metadata_selector import *
 from metadata_output import *
+import tiktoken
+
+path = r"C:\Users\ADMrechbay20\PycharmProjects\metadata capture\data\medecins.csv"
+
+res = construct_dataset(path)
+print(res[1])
 
 
-path = r"C:\Users\ADMrechbay20\OneDrive\桌面\Données\Données\Opendata\Général\Logement\rpls2021_donnees_detaillees_geolocalisees_logement\RPLS_geoloc2021_OpenData\Open_Data\Region\rpls2021_geolocalise_OD_REG11_DEP75.csv"
 
-dataset = construct_dataset(path)
-print(dataset.to_dict())
+# semantic_res = pd.read_json("../ref/ref_semantic/rpls2021_geolocalise_OD_REG11.csv.json")
+# df = csv_EL(path)
+#
+# res = classify_attributes_with_semantic_helper(df, semantic_res)
+
+
+# df = kml_EL(path)
+# print(df)
+
+# # samples = df.head(10)
+# # geom_cols = find_geometry_columns(samples)
+# # samples_for_sem = samples.drop(columns=geom_cols)
+
+#
+# enc = tiktoken.encoding_for_model("gpt-5-mini")
+# text = samples_for_sem.to_json(orient="records", force_ascii=False)
+# tokens = len(enc.encode(text))
+# print("Token count:", tokens)
+
+# dataset = construct_dataset(path)
+# print(dataset.to_dict())
+
+# meta_dict, meta_entry, perf_entry = process_file(path)
+
 
 # result = list(iter_data_files("../data",DEFAULT_EXTS))
 # print(result)
@@ -22,11 +51,11 @@ print(dataset.to_dict())
 # df, ext, dataset_type = get_df(path)
 # # df2 = df[['REG']]
 #
-# # samples = df.head(10)
-# # #
-# # semantic_res = semantic_helper(samples)
-# # #
-# # semantic_res.to_json("../test/example_semantic.json", orient="records", force_ascii=False, indent=2)
+# samples = df.head(10)
+# #
+# semantic_res = semantic_helper(samples)
+# #
+# semantic_res.to_json("../test/example_semantic.json", orient="records", force_ascii=False, indent=2)
 # #
 # semantic_res = pd.read_json("../test/example_semantic.json", orient="records")
 # result = classify_attributes_with_semantic_helper(df,semantic_res)
@@ -64,3 +93,4 @@ print(dataset.to_dict())
 #
 # # 3) Contains departement, commune, region → expect ["region"]
 # print(get_granularity({"departement", "commune", "region"}, HIER["spatial"]))
+

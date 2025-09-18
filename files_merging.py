@@ -64,6 +64,8 @@ def merge_if_consistent(files):
         dfs = [dict_EL[file_type](f) for f in files]
         if check_df_structures(dfs):
             df_all = pd.concat(dfs, ignore_index=True)
+            return df_all
+    return None
 
 
 

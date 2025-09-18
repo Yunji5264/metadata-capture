@@ -1,5 +1,10 @@
+import binascii
+import struct
+
+from itertools import combinations
 from general_function import *
 from reference import SPATIAL_NAME_MAP
+from pandas.api.types import is_numeric_dtype, is_object_dtype, is_string_dtype
 
 # Adress multi-column handling
 
@@ -223,14 +228,144 @@ def spatial_level_hints_from_colname(name: str) -> list[str]:
     return out
 
 # Spatial detector without reference
-def detect_wkt_geojson_string(s: pd.Series) -> bool:
-    """Detect WKT or GeoJSON stored as text."""
-    if not is_string_series(s):
+def _to_text_safe(x, encodings=("utf-8", "cp1252", "latin1")) -> str | None:
+    """Safely convert any scalar to text; decode bytes with fallbacks."""
+    if x is None:
+        return None
+    if isinstance(x, (bytes, bytearray)):
+        for enc in encodings:
+            try:
+                return x.decode(enc)
+            except UnicodeDecodeError:
+                continue
+        return x.decode(encodings[0], errors="replace")
+    try:
+        return str(x)
+    except Exception:
+        return None
+
+def _to_text_series_safe(s: pd.Series) -> pd.Series:
+    """Elementwise safe text conversion that preserves the index."""
+    return s.map(_to_text_safe)
+
+
+# Matches only clean hex (no spaces) with even length
+_HEX_RE = re.compile(r'^[0-9A-Fa-f]+$')
+
+# Matches a sequence of "\xNN" escapes, require at least 5 bytes to look like WKB header+ (cheap heuristic)
+_ESCAPED_HEX_RE = re.compile(r'(?:\\x[0-9A-Fa-f]{2}){5,}')
+
+# Quick set of base WKB geometry types (OGC); EWKB may set high bits for Z/M/SRID
+_WKB_BASE_TYPES = {1, 2, 3, 4, 5, 6, 7}
+
+
+def _validate_wkb_header(buf: bytes) -> bool:
+    """
+    Cheap sanity check for WKB/EWKB:
+    - length >= 5 (endian + u32 geom type)
+    - first byte is 0 or 1 (big/little endian)
+    - geometry type (masked) in known set
+    Note: EWKB may set high bits (Z/M/SRID flags). We mask them out.
+    """
+    if not buf or len(buf) < 5:
         return False
-    sample = s.dropna().astype(str).head(200)
-    wkt_pat = re.compile(r"^\s*(POINT|LINESTRING|POLYGON|MULTI\w+)\s*\(", re.I)
-    geojson_pat = re.compile(r'^\s*\{.*"type"\s*:\s*"(Point|LineString|Polygon|Multi\w+)"', re.I)
-    return any(wkt_pat.search(x) or geojson_pat.search(x) for x in sample)
+    endian = buf[0]
+    if endian not in (0, 1):
+        return False
+    # choose endian format
+    fmt = "<I" if endian == 1 else ">I"
+    geom_type = struct.unpack(fmt, buf[1:5])[0]
+    # EWKB flags (PostGIS): Z=0x80000000, M=0x40000000, SRID=0x20000000
+    base_type = geom_type & 0xFF
+    if base_type not in _WKB_BASE_TYPES:
+        return False
+    return True
+
+
+def _looks_like_binary_str(s: str) -> bool:
+    """
+    Fast check: does the string already contain non-printable or high-bit chars?
+    If yes, encoding to latin1 is very cheap and likely intended.
+    """
+    # consider printable ASCII range 32..126 plus common whitespace \t\n\r
+    for ch in s:
+        o = ord(ch)
+        if o < 9 or (13 < o < 32) or o > 126:  # exclude \t(9), \n(10), \r(13)
+            return True
+    return False
+
+
+def as_wkb_bytes(v) -> bytes | None:
+    """
+    Return bytes if value looks like WKB:
+    - bytes/bytearray/memoryview → returned directly (after header sanity check)
+    - clean hex string → unhexlify → validated
+    - string with literal backslash escapes (e.g. "\\x01\\x01...") → unicode_escape → latin1 → validated
+    - string already containing binary-ish chars (e.g. smart quotes, high-bit glyphs, control bytes) → latin1 → validated
+    Else return None.
+
+    Designed to be fast in negative cases and avoid heavy decoding unless the pattern strongly suggests WKB.
+    """
+    if v is None:
+        return None
+
+    # Case 0: already bytes-like
+    if isinstance(v, (bytes, bytearray, memoryview)):
+        b = bytes(v)
+        return b if _validate_wkb_header(b) else None
+
+    if isinstance(v, str):
+        s = v
+
+        # Case 1: clean hex (even length)
+        if len(s) % 2 == 0 and _HEX_RE.fullmatch(s):
+            try:
+                b = binascii.unhexlify(s)
+            except binascii.Error:
+                return None
+            return b if _validate_wkb_header(b) else None
+
+        # Case 2: literal "\xNN" escapes (e.g. read from CSV/JSON as text)
+        # Use regex guard to avoid applying unicode_escape to arbitrary long texts
+        if _ESCAPED_HEX_RE.search(s):
+            try:
+                # Step A: interpret backslash escapes into actual code points
+                # Note: codecs.decode(s, 'unicode_escape') would also work; using encode+decode keeps types explicit.
+                decoded = s.encode('latin1', errors='strict').decode('unicode_escape')
+                # Step B: 1:1 map to bytes
+                b = decoded.encode('latin1', errors='strict')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                b = None
+            if b and _validate_wkb_header(b):
+                return b  # success
+
+        # Case 3: already “binary-ish” string (contains control/high-bit chars)
+        if _looks_like_binary_str(s):
+            try:
+                b = s.encode('latin1', errors='strict')
+            except UnicodeEncodeError:
+                b = None
+            if b and _validate_wkb_header(b):
+                return b
+
+    # Not recognized as WKB
+    return None
+
+def detect_wkt_geojson_string(s: pd.Series) -> bool:
+    """Try external detect_wkt_geojson_string(s); fallback to safe text heuristics."""
+    sample = s.dropna().head(1).apply(_to_text_safe).dropna()
+    if sample.empty:
+        return False
+    for v in sample:
+        t = v.strip()
+        if t.startswith("{") and '"type"' in t and '"coordinates"' in t:
+            return True
+        U = t.upper()
+        if U.startswith(("SRID=", "POINT", "LINESTRING", "POLYGON", "MULTI", "GEOMETRYCOLLECTION")):
+            return True
+        if as_wkb_bytes(v):
+            return True
+    return False
 
 # def detect_geohash(s: pd.Series) -> bool:
 #     """Detect geohash strings (base32 without a,i,l,o)."""
@@ -245,86 +380,203 @@ def detect_geometry_object(s: pd.Series) -> bool:
     """Detect geometry-like Python objects (shapely/GeoSeries)."""
     if str(getattr(s, "dtype", "")).lower() == "geometry":
         return True
-    vals = s.dropna().head(20)
-    for v in vals:
-        name = type(v).__name__.lower()
-        if hasattr(v, "__geo_interface__") or any(k in name for k in ["polygon","point","linestring","multipolygon"]):
-            return True
+    sample = s.dropna().head(1)
+    if sample.empty:
+        return False
+    v = sample.iloc[0]
+    name = type(v).__name__.lower()
+    if hasattr(v, "__geo_interface__") or any(k in name for k in ["polygon","point","linestring","multipolygon"]):
+        return True
     return False
 
 def detect_address(s: pd.Series) -> bool:
-    """Heuristic for French addresses (needs tokens + a number)."""
-    if not is_string_series(s):
-        return False    # aggregated address will be string
-    tokens = r"\b(?:rue|avenue|av\.?|bd|bld|boulev(?:ard|erd)|square|sq|pl(?:ace)?|imp(?:asse)?|pas(?:sage)?|all[ée]e|quai|cours?|villa|vla|cit[ée]|ruelle|chemin|sente|sen|promenade)\b"
-    sample = s.dropna().astype(str).str.lower().head(200)
-    ok = sample.apply(lambda x: bool(re.search(tokens, x)) and bool(re.search(r"\d", x))).mean()
-    return ok >= 0.5
+    """
+    Heuristic address detector that is robust to bytes / mixed types.
+    Returns True if at least a fraction of the sample looks address-like.
+    """
+    # Only proceed for object/string-like; otherwise try best-effort conversion
+    if not (is_object_dtype(s) or is_string_dtype(s)):
+        s = _to_text_series_safe(s)
+    # Safe sample → lowercase text
+    sample = _to_text_series_safe(s.dropna().head(200)).dropna()
+    if sample.empty:
+        return False
+    txt = (sample.str.lower()
+                 .str.normalize("NFKC")
+                 .str.replace(r"[\u00A0\u202F]", " ", regex=True))
+
+    # Basic address heuristics (EN/FR + generic)
+    street_tokens = r"\b(?:street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|route|rte\.?|rue|av\.?|bd|chemin|impasse|all[ée]e|place|square)\b"
+    has_num   = txt.str.contains(r"\d")
+    has_token = txt.str.contains(street_tokens, regex=True, na=False, flags=re.I)
+    has_zip   = txt.str.contains(r"\b\d{4,5}\b")  # simple zip/postal pattern
+    # Score: number+token OR token+zip
+    score = ((has_num & has_token) | (has_token & has_zip)).mean()
+    return bool(score >= 0.15)  # tweak threshold as needed
 
 def _to_num(s: pd.Series) -> pd.Series:
-    """Convert to float; handle comma decimals and spaces."""
-    return pd.to_numeric(
-        s.astype(str).str.replace(r"\s+", "", regex=True).str.replace(",", ".", regex=False),
+    """
+    Convert a Series to numeric robustly:
+    - If already numeric dtype: coerce directly.
+    - If object/string: safe-decode bytes, normalize spaces, try decimal comma/point.
+    """
+    if is_numeric_dtype(s):
+        return pd.to_numeric(s, errors="coerce")
+
+    # If not object/string (e.g., categorical), still try to coerce directly
+    if not (is_object_dtype(s) or is_string_dtype(s)):
+        return pd.to_numeric(s, errors="coerce")
+
+    # Safe text conversion for object/string with possible bytes
+    ts = _to_text_series_safe(s)
+
+    # Normalize whitespace incl. NBSP (U+00A0) and NARROW NBSP (U+202F)
+    norm = (
+        ts.str.replace(r"[\u00A0\u202F]", "", regex=True)
+          .str.replace(r"\s+", "", regex=True)
+    )
+
+    # Attempt 1: treat comma as decimal separator (e.g., "1,23" -> 1.23)
+    nums1 = pd.to_numeric(norm.str.replace(",", "."), errors="coerce")
+
+    # Attempt 2: handle "1.234,56" → remove thousands "." then convert comma to dot
+    nums2 = pd.to_numeric(
+        norm.str.replace(".", "", regex=False).str.replace(",", ".", regex=False),
         errors="coerce"
-    ).replace([np.inf, -np.inf], np.nan)
+    )
+
+    # Prefer nums1; fallback to nums2 where nums1 is NaN
+    out = nums1.where(nums1.notna(), nums2)
+
+    # Ensure index alignment with input
+    out.index = s.index
+    return out
 
 def _frac_in_range(s: pd.Series, lo: float, hi: float) -> float:
     """Fraction of values within [lo, hi]."""
     sn = _to_num(s).dropna()
     return 0.0 if sn.empty else ((sn >= lo) & (sn <= hi)).mean()
 
-def detect_latlon_pair(df: pd.DataFrame):
+def detect_coordinate_pairs_all(
+    df: pd.DataFrame,
+    min_score_geo: float = 0.7,
+    min_score_proj: float = 0.7,
+    enable_numeric_fallback: bool = False,
+) -> Dict[str, List[Tuple[str, str, float]]]:
     """
-    Detect coordinate pair columns.
-    Supports both:
-      - Geographic (lat/lon in degrees)
-      - Projected (X/Y in meters, e.g. Lambert-93, UTM)
+    Detect ALL candidate coordinate pairs.
+
     Returns:
-      (lat_col, lon_col) if found, else None
+      {
+        "geo":  [(lat_col, lon_col, score), ...],   # geographic degrees; score in [0,1], sorted desc
+        "proj": [(y_col,   x_col,   score), ...]    # projected meters   ; score in [0,1], sorted desc
+      }
+
+    Notes:
+      - Name-driven candidates first, then (optional) numeric fallback.
+      - Score is mean of fractions in valid ranges.
+      - Duplicates are removed keeping the highest score.
+      - Column order is used as a stable tie-breaker.
     """
+    cols = list(map(str, df.columns))
 
-    # Candidate column names
-    cand_lat = [c for c in df.columns if re.search(r"\b(lat|latitude|y)\b", str(c), re.I)]
-    cand_lon = [c for c in df.columns if re.search(r"\b(lon|lng|long|longitude|x)\b", str(c), re.I)]
+    # Broader name patterns for better recall
+    pat_lat = re.compile(r"\b(lat|latitude)\b", re.I)
+    pat_lon = re.compile(r"\b(lon|lng|long|longitude)\b", re.I)
 
-    # Fallback: if no hint, try all numeric-like columns
-    if not cand_lat or not cand_lon:
-        num_like = [c for c in df.columns
-                    if pd.api.types.is_numeric_dtype(df[c]) or _to_num(df[c]).notna().mean() > 0.7]
-        if not cand_lat:
-            cand_lat = num_like
-        if not cand_lon:
-            cand_lon = num_like
+    # Projected: include northing/easting + x/y variants
+    pat_y   = re.compile(r"\b(y|y_coord|ycoord|northing|north|n)\b", re.I)
+    pat_x   = re.compile(r"\b(x|x_coord|xcoord|easting|east|e)\b", re.I)
 
+    cand_lat = [c for c in cols if pat_lat.search(c)]
+    cand_lon = [c for c in cols if pat_lon.search(c)]
+    cand_y   = [c for c in cols if pat_y.search(c)]
+    cand_x   = [c for c in cols if pat_x.search(c)]
+
+    # As a very weak fallback, accept bare 'x'/'y' if nothing matched for proj
+    if not cand_y:
+        cand_y = [c for c in cols if re.fullmatch(r"[yY]", c)]
+    if not cand_x:
+        cand_x = [c for c in cols if re.fullmatch(r"[xX]", c)]
+
+    def geo_score(la: str, lo: str) -> float:
+        """Score for geographic pair based on valid degree ranges."""
+        return float((_frac_in_range(df[la], -90, 90) + _frac_in_range(df[lo], -180, 180)) / 2.0)
+
+    def proj_score(y: str, x: str) -> float:
+        """Score for projected pair based on coarse meter ranges (UTM/Lambert-like)."""
+        return float((_frac_in_range(df[y], 1e5, 1.1e7) + _frac_in_range(df[x], 1e5, 2e7)) / 2.0)
+
+    geo_pairs: Dict[Tuple[str, str], float] = {}
+    proj_pairs: Dict[Tuple[str, str], float] = {}
+
+    # 1) Name-driven geographic candidates
     for la in cand_lat:
         for lo in cand_lon:
             if la == lo:
                 continue
-            s_lat, s_lon = df[la], df[lo]
+            sc = geo_score(la, lo)
+            if sc >= min_score_geo:
+                geo_pairs[(la, lo)] = max(geo_pairs.get((la, lo), 0.0), sc)
 
-            # Case A: Geographic lat/lon
-            lat_ok = _frac_in_range(s_lat, -90, 90)
-            lon_ok = _frac_in_range(s_lon, -180, 180)
-            if lat_ok >= 0.7 and lon_ok >= 0.7:
-                return (la, lo)
+    # 2) Name-driven projected candidates
+    for y in cand_y:
+        for x in cand_x:
+            if y == x:
+                continue
+            sc = proj_score(y, x)
+            if sc >= min_score_proj:
+                proj_pairs[(y, x)] = max(proj_pairs.get((y, x), 0.0), sc)
 
-            # Case B: Projected coordinates (X/Y meters)
-            y_ok = _frac_in_range(s_lat, 1e5, 1.1e7)
-            x_ok = _frac_in_range(s_lon, 1e5, 2e7)
-            if x_ok >= 0.7 and y_ok >= 0.7:
-                # Interpret la as Y, lo as X → return (Y, X) as (lat, lon)
-                return (la, lo)
+    # 3) Numeric fallback (optional): try all numeric-like pairs both as geo & proj
+    if enable_numeric_fallback:
+        num_like = [
+            c for c in cols
+            if pd.api.types.is_numeric_dtype(df[c]) or _to_num(df[c]).notna().mean() > 0.7
+        ]
+        for a, b in combinations(num_like, 2):
+            # geo (a,b) and (b,a)
+            sc = geo_score(a, b)
+            if sc >= min_score_geo:
+                geo_pairs[(a, b)] = max(geo_pairs.get((a, b), 0.0), sc)
+            sc = geo_score(b, a)
+            if sc >= min_score_geo:
+                geo_pairs[(b, a)] = max(geo_pairs.get((b, a), 0.0), sc)
+            # proj (a,b) and (b,a)
+            sc = proj_score(a, b)
+            if sc >= min_score_proj:
+                proj_pairs[(a, b)] = max(proj_pairs.get((a, b), 0.0), sc)
+            sc = proj_score(b, a)
+            if sc >= min_score_proj:
+                proj_pairs[(b, a)] = max(proj_pairs.get((b, a), 0.0), sc)
 
-            # Try swapped interpretation
-            lat_ok2 = _frac_in_range(s_lon, -90, 90)
-            lon_ok2 = _frac_in_range(s_lat, -180, 180)
-            if lat_ok2 >= 0.7 and lon_ok2 >= 0.7:
-                return (lo, la)
+    # 4) Sort by score desc, then by column order for reproducibility
+    geo_list = sorted(geo_pairs.items(), key=lambda kv: (-kv[1], cols.index(kv[0][0]), cols.index(kv[0][1])))
+    proj_list = sorted(proj_pairs.items(), key=lambda kv: (-kv[1], cols.index(kv[0][0]), cols.index(kv[0][1])))
 
-            y_ok2 = _frac_in_range(s_lon, 1e5, 1.1e7)
-            x_ok2 = _frac_in_range(s_lat, 1e5, 2e7)
-            if x_ok2 >= 0.7 and y_ok2 >= 0.7:
-                return (lo, la)
+    geo_out = [(a, b, s) for (a, b), s in geo_list]
+    proj_out = [(y, x, s) for (y, x), s in proj_list]
+
+    return {"geo": geo_out, "proj": proj_out}
+
+def detect_latlon_pair(df: pd.DataFrame):
+    """
+    Backward-compatible single-pair detector.
+    Prefers a true geographic (lat, lon) pair; if none, falls back to projected (Y, X).
+    Returns:
+      (lat_like_col, lon_like_col) or None
+    """
+    all_pairs = detect_coordinate_pairs_all(df, min_score_geo=0.7, min_score_proj=0.7)
+
+    # Prefer the best geographic pair
+    if all_pairs["geo"]:
+        la, lo, _ = all_pairs["geo"][0]
+        return (la, lo)
+
+    # Fallback to best projected pair (return (Y_like, X_like) in the same order)
+    if all_pairs["proj"]:
+        y, x, _ = all_pairs["proj"][0]
+        return (y, x)
 
     return None
 

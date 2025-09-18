@@ -1,6 +1,6 @@
 from reference import *
 from uml_class import Theme
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 
 def find_longest_common_prefix(paths):
     """
@@ -94,11 +94,11 @@ def find_min_common_theme(atts_theme: List[Dict[str, Any]]) -> Optional[str]:
         print("No themes found in atts_theme.")
         return None
 
-    # 2) Normalise to lists of levels (so prefix search is separator-agnostic)
-    normalised_paths = ["/".join(_split_to_levels(t)) for t in raw_themes]
+    # # 2) Normalise to lists of levels (so prefix search is separator-agnostic)
+    # normalised_paths = ["/".join(_split_to_levels(t)) for t in raw_themes]
 
     # 3) Longest common prefix on normalised string paths
-    common_prefix_levels = find_longest_common_prefix(normalised_paths)  # returns a list of levels
+    common_prefix_levels = find_longest_common_prefix(raw_themes)  # returns a list of levels
 
     # 4) Validate against the folder structure (expects list of levels)
     if validate_common_prefix(THEME_FOLDER_STRUCTURE, common_prefix_levels):
@@ -109,4 +109,35 @@ def find_min_common_theme(atts_theme: List[Dict[str, Any]]) -> Optional[str]:
         return None
 
 
+def collect_all_themes_set(atts_theme: List[Dict[str, Any]], separator: str = " > ") -> Set[str]:
+    """
+    收集 atts_theme 中所有主题，返回去重后的集合（已归一化）。
+    归一化规则：把任意分隔符统一拆分后，用 separator 重新连接。
+    """
+    themes: Set[str] = set()
+
+    for att in atts_theme:
+        th = att.get("theme")
+        if not th:
+            continue
+
+        # 兼容三种输入：Theme 实例、dict、纯字符串
+        if isinstance(th, Theme):
+            raw = th.themeName
+        elif isinstance(th, dict):
+            raw = th.get("themeName") or th.get("name") or th.get("title") or th.get("theme_name")
+        elif isinstance(th, str):
+            raw = th
+        else:
+            raw = None
+
+        if not raw:
+            continue
+
+        # 归一化到统一层级路径
+        levels = _split_to_levels(raw)
+        if levels:
+            themes.add(separator.join(levels))
+
+    return themes
 

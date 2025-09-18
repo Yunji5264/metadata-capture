@@ -59,12 +59,13 @@ def semantic_helper(
         Column names and sample data (a few values each):
         {samples}
 
-        Hard rules:
+        Hard rules (read carefully and follow exactly):
         - The four classes are mutually exclusive: exactly one of [is_spatial, is_temporal, is_indicator, is_other_information] must be True.
         - If is_indicator is False, indicator_type must be null.
-        - thematic_path must be a single path string like "Root > Subtheme > Leaf", or null if not applicable.
-        - Return ONLY a single valid JSON object (no markdown fences, no extra text).
-        - Include exactly one entry for every input column, and keep column_name identical to the input header.
+        - thematic_path must be a single path string joined by " > " with no trailing spaces (e.g., "Well-being > Health > Accessibility").
+        - thematic_path MUST start with "Well-being" (exact spelling and casing) and MUST be the full path from the root to the most specific applicable leaf.
+        - Do NOT invent, abbreviate, or reorder nodes. Use only nodes that exist in the provided hierarchy.
+        - If you cannot assign a valid full path that starts with "Well-being", return null for thematic_path.
 
         Return JSON strictly as:
         {{

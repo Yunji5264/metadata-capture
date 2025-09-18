@@ -5,6 +5,7 @@ import os
 DATA_DIR = "../data"
 METADATA_DIR = "../metadata"
 CATALOG_PATH = "../catalog.json"
+
 DEFAULT_EXTS = {
     ".csv",       # comma-separated values
     ".tsv",       # tab-separated values
@@ -17,6 +18,9 @@ DEFAULT_EXTS = {
     ".shp",       # raw Shapefile (optional: if user has unzipped)
 }
 PERF_DIR = os.path.join(METADATA_DIR, "perf")
+CACHE_DIR = os.path.join(METADATA_DIR, "_df_cache")
+
+REF_SEMANTIC = "../ref/ref_semantic"
 
 pairs = ["reg","academie","dep","arr_dep","epci","canton","com","com_arr","iris"]
 
@@ -49,7 +53,7 @@ HIER = {
             "address",
         ],
     ],
-    "temporal": [["year", "quarter", "month", "day"],["year", "week", "day"]]
+    "temporal": [["year", "quarter", "month", "date"],["year", "week", "date"]]
 }
 
 SPATIAL_NAME_MAP = {
@@ -77,7 +81,7 @@ THEME_FOLDER_STRUCTURE = {
         },
         "Psychological Health": {
             "Positive feelings": {},
-            "Thinking, learning, memory, and concentration": {
+            "Thinking, learning, memory and concentration": {
                 "Speed": {},
                 "Clarity": {}
             },
@@ -92,11 +96,69 @@ THEME_FOLDER_STRUCTURE = {
                 "Managing one's belongings appropriately": {}
             },
             "Dependence on medication and medical aids": {},
-            "Work capacity - education and skills": {}
+            "Education and Skills": {
+                "Years of schooling": {},
+                "Upper secondary attainment": {},
+                "Foundational skills": {
+                    "Literacy": {},
+                    "Numeracy": {},
+                    "Digital skills": {}
+                },
+                "Lifelong learning": {
+                    "Adult education": {},
+                    "Training opportunities": {}
+                }
+            },
+            "Income and Wealth": {
+                "Household income": {},
+                "Wealth distribution": {},
+                "Income inequality (Gini)": {},
+                "Relative poverty rate": {},
+                "Financial resources": {
+                    "Independence": {},
+                    "Feeling of having enough": {}
+                }
+            },
+            "Jobs and Employment": {
+                "Employment rate": {},
+                "Unemployment rate": {},
+                "Job quality": {},
+                "Job security": {},
+                "Youth NEET rate": {},
+                "Informal employment rate": {},
+                "Work capacity": {}
+            },
+            "Safety": {
+                "Personal security (homicide, assault)": {},
+                "Perceived safety": {},
+                "Road safety (traffic injuries)": {}
+            }
         },
-        "Civic Engagement and Governance": {},
-        "Subjective Well-being": {},
-        "Work-Life Balance": {},
+        "Civic Engagement and Governance": {
+            "Political participation": {
+                "Voter turnout": {},
+                "Civic participation (consultation, petitions)": {}
+            },
+            "Governance quality": {
+                "Trust in institutions": {},
+                "Access to justice": {},
+                "Perceived corruption": {}
+            }
+        },
+        "Subjective Well-being": {
+            "Life evaluation": {
+                "Life satisfaction": {}
+            },
+            "Affect balance": {
+                "Positive vs negative emotions": {}
+            }
+        },
+        "Work-Life Balance": {
+            "Working hours (long hours incidence)": {},
+            "Leisure time": {},
+            "Childcare availability": {},
+            "Time use balance": {}
+        },
         "Environment": {
             "Comfort and security": {},
             "Domestic environment": {
@@ -107,21 +169,18 @@ THEME_FOLDER_STRUCTURE = {
                 "Available equipment": {},
                 "Building construction quality": {}
             },
-            "Financial resources": {
-                "Independence": {},
-                "Feeling of having enough": {}
-            },
             "Health care and social care": {
                 "Accessibility": {},
                 "Quality": {}
             },
             "Opportunities to acquire new information and skills": {},
-            "Participation in recreational activities and leisure opportunities": {},
+            "Participation in recreational and leisure activities": {},
             "Physical environment": {
-                "Pollution": {},
+                "Air pollution (PM2.5 exposure)": {},
                 "Noise": {},
                 "Traffic": {},
-                "Climate": {}
+                "Climate": {},
+                "Access to green space": {}
             },
             "Infrastructure": {
                 "Transport": {},
@@ -134,12 +193,14 @@ THEME_FOLDER_STRUCTURE = {
         },
         "Social Relationships": {
             "Personal relations": {},
-            "Social support": {},
+            "Social support (help in times of need)": {},
+            "Social isolation / loneliness": {},
             "Sexual activity": {}
         },
         "Spirituality/Religion/Personal Beliefs": {}
     }
 }
+
 
 # Ordered patterns from more specific to less specific; ISO-like first.
 TEMP_NAME_PATTERNS = [

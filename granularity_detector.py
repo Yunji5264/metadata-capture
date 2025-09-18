@@ -1,19 +1,8 @@
 from general_function import *
 
 def get_granularity(granularities, hierarchies) -> str:
-    """Determine the highest (most general) matched level(s) for the given dataset.
 
-        Logic:
-        1) For each hierarchy path, pick the most general level that appears in `granularities`.
-        2) If ALL picked levels belong to a single path, collapse to that path's single
-           most general match (a one-element list).
-        3) Otherwise, return the per-path picks (deduplicated, order-preserving).
-
-        Returns:
-            List[str]: Either a single most-general level (if all picks lie on one path),
-                       or multiple levels (one per path) when matches span multiple paths.
-        """
-    # Step 1: pick most-general match per path
+    # Step 1: pick most-specific match per path
     picks: List[str] = []
     for path in hierarchies:
         top = get_most_specific_in_path(granularities, path)

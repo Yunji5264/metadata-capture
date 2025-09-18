@@ -78,8 +78,9 @@ def build_perf_table(
 
 if __name__ == "__main__":
     # Example usage
-    build_perf_table(
-        perf_dir=os.path.join("metadata", "perf"),
-        out_csv=os.path.join("metadata", "perf_summary.csv"),
-        out_parquet=os.path.join("metadata", "perf_summary.parquet"),
+    df = build_perf_table(
+        perf_dir = PERF_DIR,
+        out_csv = "../perf_summary.csv",
+        out_parquet = "../perf_summary.parquet",
     )
+    print(df)
