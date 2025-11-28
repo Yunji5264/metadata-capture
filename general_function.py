@@ -339,7 +339,7 @@ def excel_EL(file_path, sheet_name=0, usecols=None, cache_parquet: bool = True):
     return df
 
 def csv_EL(file_path):
-    encs = ["utf-8", "utf-8-sig", "cp1252", "latin1"]
+    encs = ["utf-8-sig", "utf-8", "cp1252", "latin1"]
     seps = [None, ",", ";", "\t", "|"]
     for enc in encs:
         for sep in seps:

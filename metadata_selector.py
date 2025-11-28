@@ -198,15 +198,30 @@ def _collect_values(df, cols):
         - len > 1: return unique row-wise tuples (converted to strings)
     """
     import pandas as pd
+
+    def normalize_val(v):
+        try:
+            f = float(v)
+            if f.is_integer():
+                return str(int(f))
+            return str(f)
+        except Exception:
+            return str(v)
+
     if isinstance(cols, str):
-        return set(df[cols].dropna().astype(str))
+        return set(df[cols].dropna().map(normalize_val))
     elif isinstance(cols, (list, tuple)):
         if len(cols) == 0:
             return set()
         if len(cols) == 1:
-            return set(df[cols[0]].dropna().astype(str))
+            return set(df[cols[0]].dropna().map(normalize_val))
         sub = df[list(cols)].dropna()
-        return set(map(tuple, sub.astype(str).itertuples(index=False, name=None)))
+        return set(
+            map(
+                tuple,
+                sub.applymap(normalize_val).itertuples(index=False, name=None)
+            )
+        )
     else:
         return set()
 
@@ -239,7 +254,7 @@ def get_dataset_scopes_gras(df, atts_spatial, atts_temporal):
         if gra in spatial_scope_level:
             # Case A: normal label-like scopes (e.g., country/region/city names)
             if gra not in {"geometry", "geopoint", "latlon_pair"}:
-                values = _collect_values(df, att["columns"])
+                values = list(_collect_values(df, att["columns"]))
                 spatial_scope.append(DS_Spatial_Scope(gra, values))
                 continue
 
@@ -385,6 +400,7 @@ def construct_dataset(path: str, measure: bool = True):
     theme_obj = themes if themes else None
     timings["find_common_theme_sec"] = time.perf_counter() - t0
 
+    t0 = time.perf_counter()
     # --- file size / dimensions ---
     file_size_bytes = os.path.getsize(path) if os.path.exists(path) else None
     file_size_human = human_readable_size(file_size_bytes)
@@ -419,7 +435,6 @@ def construct_dataset(path: str, measure: bool = True):
     )
 
     # --- fill attributes ---
-    t0 = time.perf_counter()
     dataset = transform_result(dataset, atts_spatial, atts_temporal, atts_indicator, atts_other)
     timings["transform_result_sec"] = time.perf_counter() - t0
     timings["total_sec"] = time.perf_counter() - t0_total

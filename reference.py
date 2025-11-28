@@ -73,6 +73,390 @@ SPATIAL_NAME_MAP = {
 }
 
 THEME_FOLDER_STRUCTURE = {
+    "Well-being": {
+        "Current Well-being": {
+            "Health": {
+                "Physical health": {
+                    "Pain and discomfort": {},
+                    "Energy and fatigue": {},
+                    "Sleep and rest": {},
+                    "Longevity & survival": {
+                        "Life expectancy": {},
+                        "Mortality": {}
+                    },
+                    "Disease burden": {
+                        "Chronic conditions": {},
+                        "Overweight & obesity": {},
+                        "Risk behaviours": {
+                            "Smoking & tobacco": {},
+                            "Harmful alcohol use": {},
+                            "Physical inactivity": {},
+                            "Diet & nutrition": {}
+                        }
+                    }
+                },
+                "Mental health": {
+                    "Positive feelings": {},
+                    "Thinking, learning, memory and concentration": {
+                        "Speed": {},
+                        "Clarity": {}
+                    },
+                    "Self-esteem": {},
+                    "Body image and appearance": {},
+                    "Negative feelings": {},
+                    "Mental state": {
+                        "Emotional well-being": {},
+                        "Cognitive function": {}
+                    },
+                    "Suicide & self-harm": {}
+                },
+                "Access to care": {
+                    "Financial accessibility": {},
+                    "Service availability": {
+                        "Geographic accessibility": {},
+                        "Coverage": {}
+                    }
+                },
+                "Health systems & services": {
+                    "Expenditure & financing": {},
+                    "Workforce & resources": {},
+                    "Utilisation & access": {},
+                    "Quality & outcomes": {},
+                    "Pharmaceuticals & medicines": {},
+                    "Preventive services & screening": {},
+                    "Health inequalities": {}
+                },
+                "Level of independence": {
+                    "Mobility": {},
+                    "Activities of daily living": {
+                        "Taking care of oneself": {},
+                        "Managing belongings appropriately": {}
+                    },
+                    "Dependence on medication and medical aids": {}
+                }
+            },
+            "Education & Skills": {
+                "Educational outcomes": {
+                    "Attainment": {
+                        "Years of schooling": {},
+                        "Upper secondary attainment": {},
+                        "Completion": {}
+                    },
+                    "Performance": {
+                        "Literacy": {},
+                        "Numeracy & science": {}
+                    }
+                },
+                "Skills & learning": {
+                    "Lifelong learning": {
+                        "Adult education": {},
+                        "Training opportunities": {}
+                    },
+                    "Skills level": {
+                        "Digital skills": {},
+                        "Employability skills": {}
+                    }
+                }
+            },
+            "Income & Wealth": {
+                "Income": {
+                    "Household income": {},
+                    "Distribution": {
+                        "Inequality": {},
+                        "Poverty": {},
+                        "Income inequality (Gini)": {},
+                        "Relative poverty rate": {}
+                    }
+                },
+                "Wealth": {
+                    "Net wealth": {},
+                    "Economic security": {
+                        "Financial resilience": {},
+                        "Perceived security": {},
+                        "Feeling of having enough": {}
+                    }
+                }
+            },
+            "Jobs & Earnings": {
+                "Employment quantity": {
+                    "Participation": {
+                        "Employment": {},
+                        "Labour force participation": {}
+                    },
+                    "Unemployment": {
+                        "General unemployment": {},
+                        "Long-term unemployment": {}
+                    }
+                },
+                "Job quality": {
+                    "Wage level": {},
+                    "Stability": {
+                        "Contract type": {},
+                        "Job security": {}
+                    },
+                    "Working conditions": {
+                        "Occupational safety": {},
+                        "Job satisfaction": {}
+                    }
+                },
+                "Additional aspects": {
+                    "Youth NEET rate": {},
+                    "Informal employment rate": {},
+                    "Work capacity": {}
+                }
+            },
+            "Housing": {
+                "Housing conditions": {
+                    "Overcrowding": {},
+                    "Facilities": {}
+                },
+                "Housing affordability": {
+                    "Cost burden": {},
+                    "Homelessness": {}
+                }
+            },
+            "Environment Quality": {
+                "Environmental exposure": {
+                    "Air quality": {},
+                    "Noise exposure": {}
+                },
+                "Perceptions & access": {
+                    "Environmental satisfaction": {},
+                    "Green space accessibility": {}
+                },
+                "Domestic environment": {
+                    "Crowding": {},
+                    "Available space": {},
+                    "Cleanliness": {},
+                    "Opportunities for privacy": {},
+                    "Available equipment": {},
+                    "Building construction quality": {}
+                },
+                "Basic services & utilities": {
+                    "Transport": {},
+                    "Drinking water": {},
+                    "Gas": {},
+                    "Electricity": {},
+                    "Sewage networks": {}
+                },
+                "Urbanisation level": {},
+                "Comfort and security": {}
+            },
+            "Safety": {
+                "Personal safety": {
+                    "Homicide and assault": {},
+                    "Crime incidence": {},
+                    "Perceived safety": {}
+                },
+                "Road safety": {
+                    "Traffic injuries": {},
+                    "Transport infrastructure safety": {}
+                }
+            },
+            "Civic Engagement & Governance": {
+                "Participation": {
+                    "Electoral participation": {},
+                    "Voter turnout": {},
+                    "Civic participation (consultation, petitions)": {}
+                },
+                "Trust & satisfaction": {
+                    "Institutional trust": {},
+                    "Public service satisfaction": {},
+                    "Access to justice": {},
+                    "Perceived corruption": {}
+                }
+            },
+            "Social Connections": {
+                "Social support": {
+                    "Reliance network": {},
+                    "Help in times of need": {},
+                    "Loneliness": {}
+                },
+                "Social participation": {
+                    "Community participation": {},
+                    "Informal care": {}
+                },
+                "Personal relations": {},
+                "Sexual activity": {}
+            },
+            "Subjective Well-being": {
+                "Life satisfaction": {},
+                "Affective balance": {
+                    "Positive vs negative emotions": {},
+                    "Positive affect": {},
+                    "Negative affect": {}
+                }
+            },
+            "Work-life Balance": {
+                "Long working hours": {},
+                "Commuting time": {},
+                "Unpaid work": {},
+                "Leisure time": {},
+                "Childcare availability": {},
+                "Time use balance": {}
+            },
+            "Spirituality / Religion / Personal Beliefs": {}
+        },
+        "Resources for Future Well-being": {
+            "Natural Capital": {
+                "Ecosystems & biodiversity": {
+                    "Protected areas": {},
+                    "Forest cover": {},
+                    "Species conservation": {}
+                },
+                "Climate & sustainability": {
+                    "Emissions": {},
+                    "Renewable energy": {},
+                    "Freshwater resources": {},
+                    "Green & blue infrastructure": {}
+                }
+            },
+            "Human Capital": {
+                "Health stock": {
+                    "Longevity": {},
+                    "Child development": {}
+                },
+                "Education & skills stock": {
+                    "Higher education": {},
+                    "Foundational skills": {},
+                    "Adult skills": {}
+                }
+            },
+            "Social Capital": {
+                "Trust & norms": {
+                    "Interpersonal trust": {},
+                    "Institutional trust": {}
+                },
+                "Inclusion & cohesion": {
+                    "Gender equality": {},
+                    "Anti-discrimination": {},
+                    "Civic inclusion": {}
+                }
+            },
+            "Economic & Produced Capital": {
+                "Infrastructure & innovation": {
+                    "Fixed capital": {},
+                    "Infrastructure quality": {},
+                    "Innovation capacity": {}
+                },
+                "Wealth sustainability": {
+                    "Adjusted savings": {},
+                    "Resource depletion": {}
+                }
+            }
+        }
+    },
+    # "Ageing-friendly": {
+    #     "Outdoor Environment & Mobility": {
+    #         "Physical environment": {
+    #             "Walkability": {
+    #                 "Pavement & sidewalks": {},
+    #                 "Street crossings": {}
+    #             },
+    #             "Accessibility of public spaces": {
+    #                 "Parks & green spaces": {},
+    #                 "Seating & rest areas": {}
+    #             }
+    #         },
+    #         "Transportation": {
+    #             "Public transport": {
+    #                 "Affordability": {},
+    #                 "Reliability": {}
+    #             },
+    #             "Mobility services": {
+    #                 "Paratransit": {},
+    #                 "Community transport": {}
+    #             }
+    #         }
+    #     },
+    #     "Housing & Living Environment": {
+    #         "Housing design": {
+    #             "Accessibility": {
+    #                 "Step-free access": {},
+    #                 "Adaptable interior": {}
+    #             },
+    #             "Safety & comfort": {
+    #                 "Thermal comfort": {},
+    #                 "Safety devices": {}
+    #             }
+    #         },
+    #         "Affordability & availability": {
+    #             "Affordability": {},
+    #             "Availability": {}
+    #         }
+    #     },
+    #     "Social Participation": {
+    #         "Cultural & recreational opportunities": {
+    #             "Venue access": {},
+    #             "Activity diversity": {}
+    #         },
+    #         "Community participation": {
+    #             "Intergenerational": {},
+    #             "Inclusive participation": {}
+    #         }
+    #     },
+    #     "Respect & Social Inclusion": {
+    #         "Attitudes towards older people": {
+    #             "Societal attitudes": {},
+    #             "Representation": {}
+    #         },
+    #         "Interpersonal relations": {
+    #             "Family relations": {},
+    #             "Community relations": {}
+    #         }
+    #     },
+    #     "Civic Participation & Employment": {
+    #         "Employment opportunities": {
+    #             "Work flexibility": {},
+    #             "Learning & skills": {}
+    #         },
+    #         "Civic engagement": {
+    #             "Volunteering": {},
+    #             "Political participation": {}
+    #         }
+    #     },
+    #     "Communication & Information": {
+    #         "Communication channels": {
+    #             "Traditional media": {},
+    #             "Digital inclusion": {}
+    #         },
+    #         "Information delivery": {
+    #             "Readability": {},
+    #             "Availability": {}
+    #         }
+    #     },
+    #     "Community Support & Health Services": {
+    #         "Community support": {
+    #             "Social care": {},
+    #             "Home help": {}
+    #         },
+    #         "Health services": {
+    #             "Primary care": {},
+    #             "Long-term & palliative care": {
+    #                 "Long-term care": {},
+    #                 "Palliative care": {}
+    #             }
+    #         }
+    #     },
+    #     "Security & Safety": {
+    #         "Personal safety": {
+    #             "Crime prevention": {},
+    #             "Emergency response": {}
+    #         },
+    #         "Financial security": {
+    #             "Income security": {},
+    #             "Consumer protection": {}
+    #         }
+    #     }
+    # }
+}
+
+
+
+
+
+
+THEME_FOLDER_STRUCTURE_old = {
     "Well-Being": {
         "Physical Health": {
             "Pain and discomfort": {},

@@ -1,6 +1,8 @@
 import binascii
 import struct
+import re
 
+from collections import Counter
 from itertools import combinations
 from general_function import *
 from reference import SPATIAL_NAME_MAP
@@ -22,11 +24,11 @@ def find_address_cols(df: pd.DataFrame, include_city_zip: bool = False) -> List[
         "way_type": [
             r"^(typ(?:e)?_?voie|type_?rue|typvoie)$",
             r"^(nature_?voie|nat_?voie|natvoie)$",
-            r"^(type(_?de)?_?voie|typevoie|lib_?type_?voie|libtypevoie)$",
+            r"^(type(_?de)?_?voie|typevoie|liblib(?:elle)?_?type_?voie|libtypevoie)$",
         ],
         "way_name": [
-            r"^(nom_?voie|libelle_?voie|lib_?voie|nomvoie|nom_?rue)$",
-            r"^(libelle(_?de)?_?voie|lib_?de_?voie|voie_?libelle)$",
+            r"^(nom_?voie|libelle_?voie|liblib(?:elle)?_?voie|nomvoie|nom_?rue)$",
+            r"^(libelle(_?de)?_?voie|liblib(?:elle)?_?de_?voie|voie_?libelle)$",
             r"^(nom(_?de)?_?voie)$",
         ],
 
@@ -153,63 +155,70 @@ def add_combined_address_column(
 
 # --- Column-name first: spatial level hints ---------------------------------
 _SPATIAL_COLNAME_HINTS = [
-    # région
+    # région / region
     ("reg", re.compile(
         r"\b(?:reg|region"
         r"|code_?reg(?:ion)?|insee_?reg(?:ion)?"
-        r"|nom_?reg(?:ion)?|lib_?reg(?:ion)?)\b", re.I)),
+        r"|nom_?reg(?:ion)?|lib(?:elle)?_?reg(?:ion)?"
+        r"|state|province|area)\b", re.I)),
 
-    # département
+    # département / department
     ("dep", re.compile(
-        r"\b(?:dep|dpt|departement"
+        r"\b(?:dep|dpt|departement|department"
         r"|code_?dep(?:art(?:ement)?)?|insee_?dep(?:art(?:ement)?)?"
-        r"|nom_?dep(?:art(?:ement)?)?|lib_?dep(?:art(?:ement)?)?)\b", re.I)),
+        r"|nom_?dep(?:art(?:ement)?)?|lib(?:elle)?_?dep(?:art(?:ement)?)?"
+        r"|county)\b", re.I)),
 
-    # arrondissement départemental
+    # arrondissement départemental / district
     ("arr_dep", re.compile(
-        r"\b(?:arr(?:ondiss(?:ement)?)?_?dep|arr_?dep|"
+        r"\b(?:arr(?:ondiss(?:ement)?)?_?dep|arr_?dep"
         r"|code_?arr_?dep|insee_?arr_?dep"
-        r"|nom_?arr_?dep|lib_?arr_?dep)\b", re.I)),
+        r"|nom_?arr_?dep|lib(?:elle)?_?arr_?dep"
+        r"|district|subdistrict)\b", re.I)),
 
     # canton
     ("canton", re.compile(
         r"\b(?:canton"
         r"|code_?canton|insee_?canton"
-        r"|nom_?canton|lib_?canton)\b", re.I)),
+        r"|nom_?canton|lib(?:elle)?_?canton"
+        r"|ward|precinct)\b", re.I)),
 
-    # epci
+    # epci / intercommunality
     ("epci", re.compile(
         r"\b(?:epci|siren_?epci"
         r"|code_?epci|insee_?epci"
-        r"|nom_?epci|lib_?epci)\b", re.I)),
+        r"|nom_?epci|liblib(?:elle)?_?epci"
+        r"|intercommunal(?:ity)?|metropolitan(?:_?area)?|federation)\b", re.I)),
 
-    # académie
+    # académie / academy
     ("academie", re.compile(
-        r"\b(?:academie|aca"
+        r"\b(?:academie|aca|academy|school_?district|education_?region"
         r"|code_?aca(?:demie)?|insee_?aca(?:demie)?"
-        r"|nom_?aca(?:demie)?|lib_?aca(?:demie)?)\b", re.I)),
+        r"|nom_?aca(?:demie)?|liblib(?:elle)?_?aca(?:demie)?)\b", re.I)),
 
-    # commune
+    # commune / municipality
     ("com", re.compile(
-        r"\b(?:com|commune"
+        r"\b(?:com|commune|municipality|town|village|city"
         r"|code_?com(?:mune)?|insee_?com(?:mune)?"
-        r"|nom_?com(?:mune)?|lib_?com(?:mune)?)\b", re.I)),
+        r"|nom_?com(?:mune)?|liblib(?:elle)?_?com(?:mune)?)\b", re.I)),
 
     # commune et arrondissement municipal (Paris, Lyon, Marseille)
     ("com_arr", re.compile(
-        r"\b(?:"
-        r"com|commune"
-        r"|code_?com(?:mune)?|insee_?com(?:mune)?|nom_?com(?:mune)?|lib_?com(?:mune)?"
+        r"\b(?:" 
+        r"com|commune|municipality|city_?district|borough"
+        r"|code_?com(?:mune)?|insee_?com(?:mune)?|nom_?com(?:mune)?|liblib(?:elle)?_?com(?:mune)?"
         r"|arrondiss(?:ement)?_?mun|com_?arr"
-        r"|code_?com_?arr|insee_?com_?arr|nom_?com_?arr|lib_?com_?arr"
+        r"|code_?com_?arr|insee_?com_?arr|nom_?com_?arr|liblib(?:elle)?_?com_?arr"
         r")\b", re.I)),
 
-    # iris
+    # iris / neighbourhood
     ("iris", re.compile(
         r"\b(?:iris"
         r"|code_?iris|insee_?iris"
-        r"|nom_?iris|lib_?iris)\b", re.I)),
+        r"|nom_?iris|liblib(?:elle)?_?iris"
+        r"|neighbou?rhood|block)\b", re.I)),
 ]
+
 
 
 
@@ -607,8 +616,6 @@ def match_series_to_ref_levels(
     sample_size: int = 300,
 ) -> Dict[str, Any]:
     """Return best {'level','by','ratio'} or {}. Robust to int/str code forms."""
-    import re
-    from collections import Counter
 
     sample = s.dropna().drop_duplicates()
     if sample.empty:

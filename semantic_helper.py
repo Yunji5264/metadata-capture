@@ -35,37 +35,112 @@ def semantic_helper(
         # Example: THEME_FOLDER_STRUCTURE = {"Well-being": {"Environment": ["Air quality", "Green space"]}}
         # Make sure it is a Python dictionary
         prompt = f"""
-        You are a data steward. Classify each column based on header names and sample values.
+        You are a rigorous data steward. Classify each column using header names and sample values.
 
-        Definitions (mutually exclusive):
-        - Spatial: a field that encodes a location (e.g., latitude/longitude, X/Y, address, admin code).
-        - Temporal: a field that encodes time or time period (e.g., year, date, month, quarter).
-        - Indicator: a measured variable used for analysis/monitoring (e.g., counts, rates, scores, categories).
-        - Other information: only if it is NOT spatial, NOT temporal, and NOT an indicator.
+        Allowed classes (mutually exclusive; exactly one must be True):
+        - Spatial: encodes a location (latitude/longitude, X/Y, address, admin code, region/department names or codes).
+        - Temporal: encodes time or period (year, date, month, quarter, week, YYYY, YYYY-MM, timestamps).
+        - Indicator: a measured variable used for analysis/monitoring (counts, rates, ratios, scores, categories, yes/no flags).
+        - Other information: ONLY if it is NOT spatial, NOT temporal, and NOT an indicator (e.g., labels, IDs, free text, entity attributes).
 
-        Tasks:
+        Tasks per column:
         1) Explain the meaning (one short sentence).
         2) Set is_spatial (bool).
         3) Set is_temporal (bool).
         4) Set is_indicator (bool).
         5) Set is_other_information (bool) = True only if the first three are all False.
         6) If is_indicator is True, set indicator_type to "Quantitative" or "Qualitative"; otherwise null.
-        7) If is_indicator is True, assign a theme from the given thematic hierarchy.
-        8) If is_other_information is True, try to assign a theme from the same hierarchy; if not possible, return null.
+        7) If is_indicator is True, assign a theme from the given hierarchy.
+        8) If is_other_information is True:
+           - If it is a supplementary field for Spatial or Temporal (e.g., geocoding precision, time parsing notes), set thematic_path = null.
+           - OTHERWISE, you MUST assign a theme from the same hierarchy (full path from root to the most specific applicable leaf).
+           - In other words, for non-spatial/non-temporal auxiliary fields, thematic_path is REQUIRED.
 
-        Thematic hierarchy (use exactly as provided):
+        Thematic hierarchy (use exactly as provided; do NOT invent nodes):
         {THEME_FOLDER_STRUCTURE}
 
         Column names and sample data (a few values each):
         {samples}
 
-        Hard rules (read carefully and follow exactly):
-        - The four classes are mutually exclusive: exactly one of [is_spatial, is_temporal, is_indicator, is_other_information] must be True.
-        - If is_indicator is False, indicator_type must be null.
-        - thematic_path must be a single path string joined by " > " with no trailing spaces (e.g., "Well-being > Health > Accessibility").
-        - thematic_path MUST start with "Well-being" (exact spelling and casing) and MUST be the full path from the root to the most specific applicable leaf.
-        - Do NOT invent, abbreviate, or reorder nodes. Use only nodes that exist in the provided hierarchy.
-        - If you cannot assign a valid full path that starts with "Well-being", return null for thematic_path.
+        STRICT formatting of thematic_path:
+        - MUST start with "Well-being" (exact spelling and casing).
+        - MUST be the FULL PATH from the root to the most specific applicable leaf.
+        - Join levels with " > " and NO trailing/leading spaces.
+        - Use ONLY nodes that exist in the provided hierarchy, preserving order and spelling.
+        - If you truly cannot assign a valid path beginning with "Well-being", return null. This null is NOT allowed when is_other_information is True for a non-spatial/non-temporal auxiliary field.
+
+        Decision steps (apply in order for each column):
+        A) Detect class:
+           - If matches location patterns (geo codes/names, lon/lat, address): Spatial.
+           - Else if matches time patterns (year, date, month, etc.): Temporal.
+           - Else if looks like a measure (numeric or categorical outcome used for analysis): Indicator.
+           - Else: Other information.
+        B) Thematic mapping:
+           - If Indicator → REQUIRED to map to the deepest applicable leaf in "Well-being ...".
+           - If Other information:
+               * If clearly auxiliary to Spatial/Temporal (e.g., geocoding quality, date parsing source), thematic_path = null.
+               * Else REQUIRED to map to the deepest applicable leaf in "Well-being ...".
+           - If Spatial or Temporal → thematic_path = null.
+
+        Common mappings (examples; use only if relevant and the node exists in the provided hierarchy):
+        - Healthcare professional specialty → Well-being > Current Well-being > Health > Health systems & services > Workforce & resources
+        - Hospital admission date → Well-being > Current Well-being > Health > Access to care
+        - Chronic disease flag → Well-being > Current Well-being > Health > Physical health > Disease burden
+        - Self-reported anxiety/depression score → Well-being > Current Well-being > Health > Mental health > Mental state
+        
+        - Education program type → Well-being > Current Well-being > Education & Skills > Skills & learning
+        - Literacy test result → Well-being > Current Well-being > Education & Skills > Educational outcomes > Performance > Literacy
+        
+        - Household disposable income → Well-being > Current Well-being > Income & Wealth > Income > Household income
+        - Net wealth of household → Well-being > Current Well-being > Income & Wealth > Wealth > Net wealth
+        
+        - Employment contract type → Well-being > Current Well-being > Jobs & Earnings > Job quality > Stability
+        - Weekly working hours → Well-being > Current Well-being > Jobs & Earnings > Job quality > Working conditions
+        
+        - Housing occupancy status → Well-being > Current Well-being > Housing > Housing conditions
+        - Housing cost burden → Well-being > Current Well-being > Housing > Housing affordability > Cost burden
+        
+        - PM2.5 concentration → Well-being > Current Well-being > Environment Quality > Environmental exposure > Air quality
+        - Green space availability → Well-being > Current Well-being > Environment Quality > Perceptions & access > Green space accessibility
+        
+        - Recorded crime rate → Well-being > Current Well-being > Safety > Personal safety > Crime incidence
+        - Road traffic injury counts → Well-being > Current Well-being > Safety > Road safety > Traffic injuries
+        
+        - Voter turnout percentage → Well-being > Current Well-being > Civic Engagement & Governance > Participation > Voter turnout
+        - Trust in government score → Well-being > Current Well-being > Civic Engagement & Governance > Trust & satisfaction > Institutional trust
+        
+        - Number of close friends reported → Well-being > Current Well-being > Social Connections > Social support > Reliance network
+        - Participation in community events → Well-being > Current Well-being > Social Connections > Social participation > Community participation
+        
+        - Life satisfaction score → Well-being > Current Well-being > Subjective Well-being > Life satisfaction
+        - Positive affect index → Well-being > Current Well-being > Subjective Well-being > Affective balance > Positive affect
+        
+        - Average commuting time → Well-being > Current Well-being > Work-life Balance > Commuting time
+        - Hours spent on unpaid work → Well-being > Current Well-being > Work-life Balance > Unpaid work
+        
+        - Religious affiliation → Well-being > Current Well-being > Spirituality / Religion / Personal Beliefs
+        
+        ---
+        
+        - Protected forest area share → Well-being > Resources for Future Well-being > Natural Capital > Ecosystems & biodiversity > Forest cover
+        - Renewable energy share of total → Well-being > Resources for Future Well-being > Natural Capital > Climate & sustainability > Renewable energy
+        
+        - Child development index → Well-being > Resources for Future Well-being > Human Capital > Health stock > Child development
+        - Adult skills survey result → Well-being > Resources for Future Well-being > Human Capital > Education & skills stock > Adult skills
+        
+        - Interpersonal trust index → Well-being > Resources for Future Well-being > Social Capital > Trust & norms > Interpersonal trust
+        - Gender equality measure → Well-being > Resources for Future Well-being > Social Capital > Inclusion & cohesion > Gender equality
+        
+        - Public infrastructure investment → Well-being > Resources for Future Well-being > Economic & Produced Capital > Infrastructure & innovation > Fixed capital
+        - Adjusted net savings → Well-being > Resources for Future Well-being > Economic & Produced Capital > Wealth sustainability > Adjusted savings
+
+
+        Quality checks (HARD FAIL if violated):
+        - Exactly ONE of [is_spatial, is_temporal, is_indicator, is_other_information] is True.
+        - If is_indicator is False → indicator_type must be null.
+        - thematic_path must either be a valid full path starting with "Well-being" or null.
+        - If is_indicator is True → thematic_path is REQUIRED (not null).
+        - If is_other_information is True and the field is NOT a Spatial/Temporal auxiliary → thematic_path is REQUIRED (not null).
 
         Return JSON strictly as:
         {{

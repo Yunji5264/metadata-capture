@@ -313,40 +313,6 @@ def find_geometry_columns(df: pd.DataFrame) -> list[str]:
 #     return results
 
 
-# ---------- Type-guard & utility helpers ----------
-
-def _to_text_safe(x, encodings=("utf-8", "cp1252", "latin1")) -> str | None:
-    """Safely convert any scalar to text; decode bytes with fallbacks."""
-    if x is None:
-        return None
-    if isinstance(x, bytes):
-        for enc in encodings:
-            try:
-                return x.decode(enc)
-            except UnicodeDecodeError:
-                continue
-        # last resort: replace undecodable bytes
-        return x.decode(encodings[0], errors="replace")
-    try:
-        return str(x)
-    except Exception:
-        return None
-
-
-
-# Safe wrappers around external detectors (so we don't crash on bad encodings)
-def _detect_geometry_object_safe(s: pd.Series) -> bool:
-    """Try external detect_geometry_object(s); fallback to a lightweight heuristic."""
-    try:
-        return detect_geometry_object(s)  # external
-    except Exception:
-        # fallback: detect shapely objects by sampling
-        sm = s.dropna().head(20)
-        if sm.empty:
-            return False
-        v = sm.iloc[0]
-        return hasattr(v, "geom_type")
-
 
 # ---------- Main function with type guards ----------
 
@@ -420,6 +386,8 @@ def classify_attributes_with_semantic_helper(
             spatial_cols.append(wkb)
 
     # 0) Resolve columns by semantic hints
+
+
     spatial_cols = spatial_cols + _col_list_from_sem(semantic_res, semantic_res["is_spatial"] == True)
     temporal_cols = _col_list_from_sem(semantic_res, semantic_res["is_temporal"] == True)
     indicator_qual_cols = _col_list_from_sem(
@@ -554,6 +522,8 @@ def classify_attributes_with_semantic_helper(
             if gate.get("levels"):
                 filtered = {lvl: ref_sets[lvl] for lvl in gate["levels"] if lvl in ref_sets}
                 if filtered:
+                    if is_numeric_series(s):
+                        s=s.apply(lambda x: str(int(x)) if pd.notna(x) and float(x).is_integer() else str(x) if pd.notna(x) else pd.NA).astype("object")
                     best = match_series_to_ref_levels(s, filtered, sample_size=sample_size)
                     if best and best["ratio"] >= min_ratio:
                         results["spatial"].append({
@@ -654,6 +624,7 @@ def classify_attributes_with_semantic_helper(
             "columns": col,
             "description": des,
             "type": str(s.dtype),
+            "theme":semantic_res.loc[semantic_res["column_name"] == col, "thematic_path"].iloc[0],
             "reason": "Semantically detected as other information",
             "avg_text_len": avg_len
         })
@@ -670,69 +641,3 @@ def classify_attributes_with_semantic_helper(
     }
 
     return results
-
-def classify_attributes_with_semantic_helper_timed(
-    df: pd.DataFrame,
-    semantic_res: pd.DataFrame,
-) -> Dict[str, Any]:
-    """
-    Timing-only test version.
-    Runs the same major steps as the real classifier,
-    but only returns timings (not full classification results).
-    """
-
-    timings: Dict[str, float] = {}
-    def tic(): return perf_counter()
-    def toc(t0, key):
-        timings[key] = timings.get(key, 0.0) + (perf_counter() - t0)
-
-    t_all = tic()
-
-    # 0) geometry detection
-    t0 = tic()
-    _ = find_geometry_columns(df)
-    toc(t0, "detect_geometry_columns")
-
-    # 1) semantic resolution
-    t0 = tic()
-    _ = semantic_res.loc[semantic_res["is_spatial"] == True, "column_name"].tolist()
-    _ = semantic_res.loc[semantic_res["is_temporal"] == True, "column_name"].tolist()
-    toc(t0, "semantic_resolution")
-
-    # 2) address composition
-    t0 = tic()
-    _ = add_combined_address_column(df, colname="__address__")
-    toc(t0, "address_composition")
-
-    # 3) lat/lon detection
-    t0 = tic()
-    _ = detect_latlon_pair(df)
-    toc(t0, "latlon_detection")
-
-    # 4) spatial inference loop
-    t0 = tic()
-    for col in df.columns:
-        s = df[col]
-        _ = detect_geometry_object(s) if s.dtype == object else None
-        _ = detect_wkt_geojson_string(s)
-        _ = detect_address(s)
-        # skip the heavy ref-matching for this test version
-    toc(t0, "spatial_inference_loop")
-
-    # 5) temporal detection loop
-    t0 = tic()
-    for col in semantic_res.loc[semantic_res["is_temporal"] == True, "column_name"]:
-        if col in df.columns:
-            _ = detect_temporal_granularity(df[col])
-    toc(t0, "temporal_detection_loop")
-
-    # 6) indicator builders (stub only)
-    t0 = tic()
-    for col in semantic_res.loc[semantic_res["is_indicator"] == True, "column_name"]:
-        if col in df.columns:
-            _ = build_quantitative_entry(col, df[col], semantic_res)
-    toc(t0, "indicator_builders")
-
-    toc(t_all, "total")
-
-    return {"timings": timings}

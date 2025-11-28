@@ -1,6 +1,16 @@
 from general_function import *
 from reference import TEMP_NAME_PATTERNS
 
+def is_datetime_column(s: pd.Series, threshold: float = 0.9) -> bool:
+    """
+    判断 Series 是否为时间列。
+    threshold: 至少有多少比例的值能成功解析为时间，才算时间列。
+    """
+    parsed = pd.to_datetime(s, errors="coerce", utc=True)
+    success_ratio = parsed.notna().mean()   # 成功解析的比例
+    return success_ratio >= threshold
+
+
 def detect_temporal_granularity(col: pd.Series) -> Tuple[str | None, float]:
     """Return ('year'|'quarter'|'month'|'week'|'day'|None, confidence)."""
     if pd.api.types.is_datetime64_any_dtype(col):
@@ -35,7 +45,8 @@ def detect_temporal_granularity(col: pd.Series) -> Tuple[str | None, float]:
 
     if is_string_series(col):
         sample = col.dropna().astype(str).str.strip().head(300)
-        if sample.apply(lambda x: bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", x))).mean() >= 0.9:
+
+        if sample.apply(lambda x: bool(re.fullmatch(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$", x))).mean() >= 0.9:
             return ("date", 0.95)
         if sample.apply(lambda x: bool(re.fullmatch(r"\d{4}-\d{2}", x))).mean() >= 0.9:
             return ("month", 0.95)

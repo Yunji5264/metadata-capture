@@ -11,16 +11,12 @@ from metadata_selector import *
 from metadata_output import *
 import tiktoken
 
-path = r"C:\Users\ADMrechbay20\PycharmProjects\metadata capture\data\medecins.csv"
-
-res = construct_dataset(path)
-print(res[1])
+path = r"C:\Users\ADMrechbay20\PycharmProjects\metadata capture\\data\patientele.csv"
+construct_dataset(path)
 
 
-
-# semantic_res = pd.read_json("../ref/ref_semantic/rpls2021_geolocalise_OD_REG11.csv.json")
+# semantic_res = pd.read_json("../ref/ref_semantic/patientele.csv.json")
 # df = csv_EL(path)
-#
 # res = classify_attributes_with_semantic_helper(df, semantic_res)
 
 
