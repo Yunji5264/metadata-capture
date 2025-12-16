@@ -452,10 +452,15 @@ def classify_attributes_with_semantic_helper(
     for col in df2.columns:
         if col in consumed:
             continue
+
         s = df2[col]
         fmt_hints = geoformat_hints_from_colname(col) or {}
 
+        # 用于兜底：若整条规则链未命中，则强制进入 other
+        assigned = False
+
         # Guard 0: skip columns that are known geometry-like
+        # Intentionally excluded from both spatial and other buckets
         if col in geom_cols:
             continue
 
@@ -463,7 +468,9 @@ def classify_attributes_with_semantic_helper(
         if is_object_dtype(s):
             if detect_geometry_object(s):
                 conf = 0.99 if fmt_hints.get("geometry") else 0.98
-                evd = "Objects/dtype appear to be geometry." + (" Column name suggests geometry." if fmt_hints.get("geometry") else "")
+                evd = "Objects/dtype appear to be geometry." + (
+                    " Column name suggests geometry." if fmt_hints.get("geometry") else ""
+                )
                 results["spatial"].append({
                     "columns": col,
                     "description": "geometry",
@@ -473,14 +480,21 @@ def classify_attributes_with_semantic_helper(
                     "evidence": evd
                 })
                 consumed.add(col)
+                assigned = True
                 continue
 
         # Guard 2: WKT/GeoJSON textual detection only for text-like series
         if detect_wkt_geojson_string(s):
-            name_gate_ok = fmt_hints.get("wkt") or fmt_hints.get("geojson") or fmt_hints.get("geometry")
+            name_gate_ok = (
+                    fmt_hints.get("wkt")
+                    or fmt_hints.get("geojson")
+                    or fmt_hints.get("geometry")
+            )
             if (not require_name_hint_for_geoformats) or name_gate_ok:
                 conf = 0.96 if name_gate_ok else 0.93
-                evd = "Values match WKT/GeoJSON textual patterns." + (" Column name suggests WKT/GeoJSON." if name_gate_ok else "")
+                evd = "Values match WKT/GeoJSON textual patterns." + (
+                    " Column name suggests WKT/GeoJSON." if name_gate_ok else ""
+                )
                 results["spatial"].append({
                     "columns": col,
                     "description": "geometry",
@@ -490,9 +504,10 @@ def classify_attributes_with_semantic_helper(
                     "evidence": evd
                 })
                 consumed.add(col)
+                assigned = True
                 continue
 
-        # Address detection (keep text-only guard inside detector if needed)
+        # Address detection
         if col == address_colname and detect_address(s):
             results["spatial"].append({
                 "columns": addr_cols,
@@ -502,7 +517,9 @@ def classify_attributes_with_semantic_helper(
                 "confidence": 0.8,
                 "evidence": "Aggregated address lines with street tokens and numbers."
             })
+            assigned = True
             continue
+
         if not addr_cols and detect_address(s):
             results["spatial"].append({
                 "columns": col,
@@ -512,19 +529,41 @@ def classify_attributes_with_semantic_helper(
                 "confidence": 0.75,
                 "evidence": "Address-like strings detected."
             })
+            assigned = True
             continue
 
         # Gate-based reference matching
-        gate = spatial_gate_from_colname(col) or {"has_gate": False, "levels": [], "generic": False}
+        gate = spatial_gate_from_colname(col) or {
+            "has_gate": False,
+            "levels": [],
+            "generic": False,
+        }
         des = _desc(semantic_res, col)
 
         if ref_sets and not_null_ratio(s) > 0.2 and gate.get("has_gate", False):
+
+            # A) Level-gated matching
             if gate.get("levels"):
-                filtered = {lvl: ref_sets[lvl] for lvl in gate["levels"] if lvl in ref_sets}
+                filtered = {
+                    lvl: ref_sets[lvl]
+                    for lvl in gate["levels"]
+                    if lvl in ref_sets
+                }
+
                 if filtered:
                     if is_numeric_series(s):
-                        s=s.apply(lambda x: str(int(x)) if pd.notna(x) and float(x).is_integer() else str(x) if pd.notna(x) else pd.NA).astype("object")
-                    best = match_series_to_ref_levels(s, filtered, sample_size=sample_size)
+                        s = s.apply(
+                            lambda x: str(int(x))
+                            if pd.notna(x) and float(x).is_integer()
+                            else str(x)
+                            if pd.notna(x)
+                            else pd.NA
+                        ).astype("object")
+
+                    best = match_series_to_ref_levels(
+                        s, filtered, sample_size=sample_size
+                    )
+
                     if best and best["ratio"] >= min_ratio:
                         results["spatial"].append({
                             "columns": col,
@@ -532,23 +571,41 @@ def classify_attributes_with_semantic_helper(
                             "type": str(s.dtype),
                             "granularity": best["level"],
                             "matched_by": best["by"],
-                            "confidence": min(0.99, 0.7 + 0.3 * best["ratio"]),
-                            "evidence": f"Name gate [{', '.join(gate['levels'])}] → ref match by {best['by']} ({round(best['ratio'] * 100)}%)."
+                            "confidence": min(
+                                0.99, 0.7 + 0.3 * best["ratio"]
+                            ),
+                            "evidence": (
+                                f"Name gate [{', '.join(gate['levels'])}] → "
+                                f"ref match by {best['by']} "
+                                f"({round(best['ratio'] * 100)}%)."
+                            ),
                         })
+                        assigned = True
                         continue
+
                     elif best:
                         results["other"].append({
                             "columns": col,
                             "description": des,
                             "type": str(s.dtype),
                             "granularity": best["level"],
-                            "matched_by": best["by"]
+                            "matched_by": best["by"],
                         })
+                        assigned = True
                         continue
+                    # best is None → fall through to other
 
+            # B) Generic fallback matching
             elif gate.get("generic", False):
-                best = match_series_to_ref_levels(s, ref_sets, sample_size=sample_size) if ref_sets else None
+                best = (
+                    match_series_to_ref_levels(
+                        s, ref_sets, sample_size=sample_size
+                    )
+                    if ref_sets
+                    else None
+                )
                 generic_min = max(min_ratio, 0.80)
+
                 if best and best["ratio"] >= generic_min:
                     results["spatial"].append({
                         "columns": col,
@@ -556,19 +613,38 @@ def classify_attributes_with_semantic_helper(
                         "type": str(s.dtype),
                         "granularity": best["level"],
                         "matched_by": best["by"],
-                        "confidence": min(0.99, 0.68 + 0.32 * best["ratio"]),
-                        "evidence": f"Generic geo gate → ref match by {best['by']} ({round(best['ratio'] * 100)}%)."
+                        "confidence": min(
+                            0.99, 0.68 + 0.32 * best["ratio"]
+                        ),
+                        "evidence": (
+                            f"Generic geo gate → ref match by {best['by']} "
+                            f"({round(best['ratio'] * 100)}%)."
+                        ),
                     })
+                    assigned = True
                     continue
+
                 elif best:
                     results["other"].append({
                         "columns": col,
                         "description": des,
                         "type": str(s.dtype),
                         "granularity": best["level"],
-                        "matched_by": best["by"]
+                        "matched_by": best["by"],
                     })
+                    assigned = True
                     continue
+                # best is None → fall through to other
+
+        # ---- Unified fallback ----
+        if not assigned:
+            results["other"].append({
+                "columns": col,
+                "description": des,
+                "type": str(s.dtype),
+                "granularity": "",
+                "matched_by": "",
+            })
 
     # 2) Temporal (always "columns":[col])
     for col in df_temporal.columns:

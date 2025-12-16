@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from general_function import *  # your shared helpers
 from uml_class import Dataset
-from metadata_selector import construct_dataset  # your pipeline entry
+from metadata_selector import construct_dataset, construct_dataset_new  # your pipeline entry
 from reference import DATA_DIR, METADATA_DIR, CATALOG_PATH, PERF_DIR, DEFAULT_EXTS
 
 
@@ -83,7 +83,7 @@ def _outputs_exist_for(p: str) -> bool:
     return os.path.exists(meta_path) and os.path.exists(perf_path)
 
 
-def was_processed_successfully(p: str, catalog: Dict[str, Any]) -> bool:
+def was_processed_successfully(p: str, catalog: Dict[str, Any]):
     """
     Decide whether to skip processing for file `p`.
 
@@ -96,21 +96,28 @@ def was_processed_successfully(p: str, catalog: Dict[str, Any]) -> bool:
 
     This avoids recomputing checksums on every run.
     """
+
+
     mtime = _file_mtime_int(p)
     pid = dataset_id_from_path(p)
+    abs_p = os.path.abspath(p)
 
     try:
         datasets = catalog.get("datasets", []) if isinstance(catalog, dict) else []
         for e in datasets:
-            # Match by id primarily; fall back to absolute sourcePath
             same_id = (e.get("id") == pid)
-            same_path = os.path.abspath(e.get("sourcePath", "")) == os.path.abspath(p)
+            same_path = os.path.abspath(e.get("sourcePath", "")) == abs_p
             if not (same_id or same_path):
                 continue
 
-            # Require mtime and status to match
-            if int(e.get("sourceMtime", -2)) == mtime and (e.get("status", "").lower() == "ok"):
-                return True
+            # mtime & status must match
+            if int(e.get("sourceMtime", -2)) == mtime and e.get("status", "").lower() == "ok":
+                # Verify metadata file exists
+                meta_path = e.get("metadataPath")
+                if meta_path and os.path.exists(meta_path):
+                    return True
+                # metadata record exists but file missing → force reprocess
+                return False
     except Exception:
         pass
 
@@ -318,7 +325,7 @@ def build_catalog_for_dir_parallel(
     max_workers: int = os.cpu_count() or 4,
     allow_exts: Optional[Iterable[str]] = None,
     *,
-    force: bool = True,
+    force: bool = False,
 ) -> None:
     """
     Parallel metadata + performance extraction for all files under `data_dir`.
