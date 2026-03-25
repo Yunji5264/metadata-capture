@@ -417,4 +417,4 @@ def build_catalog_for_dir_parallel(
 
 if __name__ == "__main__":
     # Example: only process certain extensions and use 8 workers
-    build_catalog_for_dir_parallel(DATA_DIR, max_workers=8, allow_exts=DEFAULT_EXTS, force=True)
+    build_catalog_for_dir_parallel(DATA_DIR, max_workers=8, allow_exts=DEFAULT_EXTS, force=False)
